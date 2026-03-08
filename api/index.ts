@@ -8,14 +8,16 @@ export const config = {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
+  const bodyBuffer =
+    req.method !== "GET" && req.method !== "HEAD"
+      ? await streamToBuffer(req)
+      : null;
+
   // Build a fetch-compatible Request from the Vercel IncomingMessage
   const fetchReq = new Request(url.toString(), {
     method: req.method ?? "GET",
     headers: req.headers as Record<string, string>,
-    body:
-      req.method !== "GET" && req.method !== "HEAD"
-        ? await streamToBuffer(req)
-        : undefined,
+    body: bodyBuffer ? (bodyBuffer as unknown as BodyInit) : undefined,
   });
 
   const fetchRes = await app.fetch(fetchReq);
@@ -30,11 +32,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.end(body);
 }
 
-function streamToBuffer(req: VercelRequest): Promise<Buffer> {
+function streamToBuffer(req: VercelRequest): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => resolve(Buffer.concat(chunks)));
+    const chunks: Uint8Array[] = [];
+    req.on("data", (chunk: Uint8Array) => chunks.push(chunk));
+    req.on("end", () => {
+      const total = chunks.reduce((acc, c) => acc + c.length, 0);
+      const merged = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        merged.set(chunk, offset);
+        offset += chunk.length;
+      }
+      resolve(merged);
+    });
     req.on("error", reject);
   });
 }
