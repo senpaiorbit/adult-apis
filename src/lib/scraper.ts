@@ -2,25 +2,24 @@ import { load, type CheerioAPI } from "cheerio";
 import { DEFAULT_HEADERS, FETCH_TIMEOUT, MAX_RETRIES } from "../config";
 import { cleanText } from "./format";
 
-// ─── In-memory cache & in-flight deduplication ───────────────────────────────
-
+// ── In-memory cache & deduplication ─────────────────────────────────────────
 const fetchCache = new Map<string, string>();
-const inFlight    = new Map<string, Promise<string>>();
+const inFlight   = new Map<string, Promise<string>>();
 
-// ─── fetchPage ────────────────────────────────────────────────────────────────
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 /**
- * Fetch raw HTML from a URL.
- * - Collapses duplicate slashes in the URL (preserves "://").
- * - Returns cached result on subsequent calls.
- * - Deduplicates concurrent requests for the same URL.
- * - Retries up to MAX_RETRIES times with incremental back-off.
+ * Fetch raw HTML with caching, deduplication and retry back-off.
+ * Uses native fetch (Node 18+ built-in — Vercel Node 20.x supports it).
  */
-export async function fetchPage(url: string): Promise<string> {
-  const normalized = url.replace(/(?<!:)\/\//g, "/");
+export async function fetchPage(rawUrl: string): Promise<string> {
+  // collapse duplicate slashes while preserving "://"
+  const url = rawUrl.replace(/([^:])\/\/+/g, "$1/");
 
-  if (fetchCache.has(normalized)) return fetchCache.get(normalized)!;
-  if (inFlight.has(normalized))   return inFlight.get(normalized)!;
+  if (fetchCache.has(url)) return fetchCache.get(url)!;
+  if (inFlight.has(url))   return inFlight.get(url)!;
 
   const promise = (async (): Promise<string> => {
     let lastErr: Error | null = null;
@@ -30,7 +29,7 @@ export async function fetchPage(url: string): Promise<string> {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
-        const res = await fetch(normalized, {
+        const res = await fetch(url, {
           headers: DEFAULT_HEADERS,
           signal:  controller.signal,
           redirect: "follow",
@@ -39,40 +38,34 @@ export async function fetchPage(url: string): Promise<string> {
         clearTimeout(timer);
 
         if (!res.ok) {
-          throw new Error(`HTTP ${res.status} ${res.statusText}`);
+          throw new Error(`HTTP ${res.status} ${res.statusText} — ${url}`);
         }
 
         const html = await res.text();
-        fetchCache.set(normalized, html);
+        fetchCache.set(url, html);
         return html;
       } catch (err) {
         lastErr = err as Error;
-        if (attempt < MAX_RETRIES) {
-          await sleep(300 * attempt);
-        }
+        console.warn(`[fetchPage] attempt ${attempt} failed: ${lastErr.message}`);
+        if (attempt < MAX_RETRIES) await sleep(350 * attempt);
       }
     }
 
     throw new Error(
-      `fetchPage failed after ${MAX_RETRIES} attempts: ${lastErr?.message}`
+      `fetchPage gave up after ${MAX_RETRIES} attempts: ${lastErr?.message}`
     );
   })();
 
-  inFlight.set(normalized, promise);
-
+  inFlight.set(url, promise);
   try {
     return await promise;
   } finally {
-    inFlight.delete(normalized);
+    inFlight.delete(url);
   }
 }
 
-// ─── HtmlDoc ──────────────────────────────────────────────────────────────────
+// ── HtmlDoc ──────────────────────────────────────────────────────────────────
 
-/**
- * Thin wrapper around Cheerio that provides concise helper methods for
- * extracting text, attributes and meta tags without repeated boilerplate.
- */
 export class HtmlDoc {
   private $: CheerioAPI;
 
@@ -80,25 +73,18 @@ export class HtmlDoc {
     this.$ = load(html);
   }
 
-  /** Expose the raw Cheerio instance for advanced queries. */
   get raw(): CheerioAPI {
     return this.$;
   }
 
-  /** Cleaned inner text of the first matching element. */
   text(selector: string): string {
     return cleanText(this.$(selector).first().text());
   }
 
-  /** Attribute value of the first matching element. */
   attr(selector: string, attribute: string): string {
     return this.$(selector).first().attr(attribute) ?? "";
   }
 
-  /**
-   * Convenience: read a `<meta property="…">` or `<meta name="…">` tag.
-   * Returns empty string when not found.
-   */
   meta(key: string): string {
     return (
       this.$(`meta[property="${key}"]`).attr("content") ??
@@ -107,27 +93,19 @@ export class HtmlDoc {
     );
   }
 
-  /** Collect cleaned text from every matching element. */
   texts(selector: string): string[] {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return this.$(selector)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((_i: number, el: any) => cleanText(this.$(el).text()))
+      .map((_i: any, el: any) => cleanText(this.$(el).text()))
       .get()
       .filter(Boolean);
   }
 
-  /** Collect attribute values from every matching element. */
   attrs(selector: string, attribute: string): string[] {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return this.$(selector)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((_i: number, el: any) => this.$(el).attr(attribute) ?? "")
+      .map((_i: any, el: any) => this.$(el).attr(attribute) ?? "")
       .get()
       .filter(Boolean);
   }
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
