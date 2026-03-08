@@ -1,4 +1,4 @@
-import { handlePornhub } from "./api/pornhub/index";
+import { handlePornhub } from "./api/pornhub/router";
 import { maybeError }    from "./utils/modifier";
 
 export interface RouteResult {
@@ -17,7 +17,6 @@ export function getCorsHeaders(): Record<string, string> {
 }
 
 export async function route(pathname: string, query: URLSearchParams): Promise<RouteResult> {
-  // Health check
   if (pathname === "/" || pathname === "") {
     return {
       status: 200,
@@ -34,7 +33,6 @@ export async function route(pathname: string, query: URLSearchParams): Promise<R
     };
   }
 
-  // Pornhub routes
   if (pathname.startsWith("/pornhub/")) {
     return handlePornhub(pathname, query);
   }
