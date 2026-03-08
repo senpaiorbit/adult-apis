@@ -1,15 +1,13 @@
 import { Hono } from "hono";
-import { handle } from "hono/vercel";
-import type { IncomingMessage, ServerResponse } from "http";
 import { cors } from "hono/cors";
-import pornhubRouter from "../src/api/pornhub";
+import type { IncomingMessage, ServerResponse } from "http";
+import pornhubRouter from "../src/api/pornhub/index";
 
-// Must be "edge" or omitted for @vercel/node — do NOT set runtime: "nodejs"
 export const config = {
   maxDuration: 30,
 };
 
-const app = new Hono().basePath("/");
+const app = new Hono();
 
 app.use("*", cors());
 
@@ -37,9 +35,38 @@ app.onError((err, c) => {
   return c.json({ success: false, message: err.message }, 500);
 });
 
+// @vercel/node passes (req, res) — manually bridge to Hono's fetch handler
 export default async function handler(
   req: IncomingMessage,
   res: ServerResponse
 ) {
-  return handle(app)(req as any, res as any);
+  // Build a full URL from the incoming request
+  const host = req.headers["host"] || "localhost";
+  const proto =
+    (req.headers["x-forwarded-proto"] as string) || "https";
+  const url = `${proto}://${host}${req.url ?? "/"}`;
+
+  // Read body
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+  const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
+
+  // Build a standard Request for Hono
+  const webReq = new Request(url, {
+    method:  req.method ?? "GET",
+    headers: req.headers as Record<string, string>,
+    body:    body && body.length > 0 ? body : undefined,
+  });
+
+  const webRes = await app.fetch(webReq);
+
+  res.statusCode = webRes.status;
+  webRes.headers.forEach((value, key) => {
+    res.setHeader(key, value);
+  });
+
+  const resBody = await webRes.arrayBuffer();
+  res.end(Buffer.from(resBody));
 }
