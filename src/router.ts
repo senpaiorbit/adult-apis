@@ -22,18 +22,20 @@ export async function route(pathname: string, query: URLSearchParams): Promise<R
       status: 200,
       body: {
         name:    "CornHub API",
-        version: "1.0.0",
+        version: "2.0.0",
         status:  "ok",
+        source:  "pornhub.org",
         routes: {
-          "GET /pornhub/get?id=<viewkey>":          "Fetch a single video by ID",
+          "GET /pornhub/get?id=<viewkey>":          "Fetch a single video by viewkey",
           "GET /pornhub/search?q=<query>&page=<n>": "Search videos",
           "GET /pornhub/trending?page=<n>":         "Trending videos",
+          "GET /pornhub/debug?url=<url>":           "Debug scraper for any URL",
         },
       },
     };
   }
 
-  if (pathname.startsWith("/pornhub/")) {
+  if (pathname.startsWith("/pornhub")) {
     return handlePornhub(pathname, query);
   }
 
