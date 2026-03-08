@@ -1,5 +1,6 @@
 import * as https from "https";
-import * as http from "http";
+import * as http  from "http";
+import * as zlib  from "zlib";
 import { load, type CheerioAPI } from "cheerio";
 import { DEFAULT_HEADERS, FETCH_TIMEOUT, MAX_RETRIES } from "../config/index";
 import { cleanText } from "./format";
@@ -11,27 +12,73 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function fetchRaw(url: string): Promise<string> {
+function fetchRaw(url: string, redirects = 0): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (redirects > 5) return reject(new Error("Too many redirects"));
+
     const lib = url.startsWith("https") ? https : http;
-    const req = lib.get(url, { headers: DEFAULT_HEADERS, timeout: FETCH_TIMEOUT }, (res) => {
-      // Follow redirects (up to 5)
-      if (
-        res.statusCode &&
-        res.statusCode >= 300 &&
-        res.statusCode < 400 &&
-        res.headers.location
-      ) {
-        return fetchRaw(res.headers.location).then(resolve).catch(reject);
+    const req = lib.get(
+      url,
+      {
+        headers: {
+          ...DEFAULT_HEADERS,
+          // spoof a real browser referer
+          Referer: new URL(url).origin + "/",
+        },
+        timeout: FETCH_TIMEOUT,
+      },
+      (res) => {
+        // Follow redirects
+        if (
+          res.statusCode &&
+          res.statusCode >= 300 &&
+          res.statusCode < 400 &&
+          res.headers.location
+        ) {
+          const next = res.headers.location.startsWith("http")
+            ? res.headers.location
+            : new URL(res.headers.location, url).href;
+          res.resume();
+          return fetchRaw(next, redirects + 1).then(resolve).catch(reject);
+        }
+
+        if (res.statusCode && res.statusCode >= 400) {
+          res.resume();
+          return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+        }
+
+        const chunks: Buffer[] = [];
+        const encoding = res.headers["content-encoding"];
+
+        const onData  = (c: Buffer) => chunks.push(c);
+        const onEnd   = () => {
+          const raw = Buffer.concat(chunks);
+          if (encoding === "br") {
+            zlib.brotliDecompress(raw, (err, decoded) => {
+              if (err) return reject(err);
+              resolve(decoded.toString("utf8"));
+            });
+          } else if (encoding === "gzip") {
+            zlib.gunzip(raw, (err, decoded) => {
+              if (err) return reject(err);
+              resolve(decoded.toString("utf8"));
+            });
+          } else if (encoding === "deflate") {
+            zlib.inflate(raw, (err, decoded) => {
+              if (err) return reject(err);
+              resolve(decoded.toString("utf8"));
+            });
+          } else {
+            resolve(raw.toString("utf8"));
+          }
+        };
+
+        res.on("data", onData);
+        res.on("end",  onEnd);
+        res.on("error", reject);
       }
-      if (res.statusCode && res.statusCode >= 400) {
-        return reject(new Error(`HTTP ${res.statusCode}`));
-      }
-      const chunks: Buffer[] = [];
-      res.on("data", (c: Buffer) => chunks.push(c));
-      res.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-      res.on("error", reject);
-    });
+    );
+
     req.on("error", reject);
     req.on("timeout", () => {
       req.destroy();
@@ -41,6 +88,7 @@ function fetchRaw(url: string): Promise<string> {
 }
 
 export async function fetchPage(rawUrl: string): Promise<string> {
+  // Normalise double-slashes except after protocol
   const url = rawUrl.replace(/([^:])\/\/+/g, "$1/");
 
   if (fetchCache.has(url)) return fetchCache.get(url)!;
@@ -56,7 +104,7 @@ export async function fetchPage(rawUrl: string): Promise<string> {
       } catch (err) {
         lastErr = err as Error;
         console.warn(`[fetchPage] attempt ${attempt} failed: ${lastErr.message}`);
-        if (attempt < MAX_RETRIES) await sleep(350 * attempt);
+        if (attempt < MAX_RETRIES) await sleep(500 * attempt);
       }
     }
     throw new Error(`fetchPage failed after ${MAX_RETRIES} attempts: ${lastErr?.message}`);
