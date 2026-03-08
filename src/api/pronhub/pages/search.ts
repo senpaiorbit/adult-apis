@@ -1,0 +1,88 @@
+import type { Context } from "hono";
+import { fetchPage, HtmlDoc } from "../../../lib/scraper";
+import { normalizeThumbnail, encodeQuery, cleanText } from "../../../lib/format";
+import { BASE_URLS } from "../../../config";
+import { maybeError } from "../../../utils/modifier";
+import { logger } from "../../../utils/logger";
+
+interface VideoCard {
+  id:       string;
+  title:    string;
+  thumb:    string;
+  duration: string;
+  views:    string;
+  rating:   string;
+  url:      string;
+}
+
+/**
+ * GET /pornhub/search?q=<query>&page=<page>
+ *
+ * Returns a paginated list of video cards matching the search query.
+ */
+export async function searchHandler(c: Context) {
+  const q    = c.req.query("q");
+  const page = c.req.query("page") || "1";
+
+  if (!q) {
+    return c.json(maybeError(false, "Query param `q` is required"), 400);
+  }
+
+  try {
+    const url  = `${BASE_URLS.PORNHUB}/video/search?search=${encodeQuery(q)}&p=${page}`;
+    const html = await fetchPage(url);
+    const $    = new HtmlDoc(html).raw;
+
+    const results: VideoCard[] = [];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    $("li.pcVideoListItem").each((_i: number, el: any) => {
+      const $el = $(el);
+
+      const href = $el.find("a.linkVideoThumb").attr("href") ?? "";
+      if (!href) return;
+
+      const title = cleanText($el.find(".title a").text());
+
+      const thumb = normalizeThumbnail(
+        $el.find("img").attr("data-thumb_url") ||
+        $el.find("img").attr("data-mediumthumb") ||
+        $el.find("img").attr("src") ||
+        ""
+      );
+
+      const duration = cleanText($el.find("var.duration").text());
+      const views    = cleanText($el.find("span.count").text());
+      const rating   = cleanText($el.find("div.value").first().text());
+
+      // viewkey sits after "?viewkey=" in the href
+      const id = href.includes("viewkey=")
+        ? href.split("viewkey=")[1]
+        : href.split("=").pop() ?? "";
+
+      results.push({
+        id,
+        title,
+        thumb,
+        duration,
+        views,
+        rating,
+        url: `${BASE_URLS.PORNHUB}${href}`,
+      });
+    });
+
+    logger.info(`[pornhub/search] q="${q}" page=${page} results=${results.length}`);
+
+    return c.json({
+      success: true,
+      query:   q,
+      page:    Number(page),
+      total:   results.length,
+      data:    results,
+    });
+  } catch (err) {
+    const e = err as Error;
+    logger.error(`[pornhub/search] ${e.message}`);
+    return c.json(maybeError(false, e.message), 500);
+  }
+}
