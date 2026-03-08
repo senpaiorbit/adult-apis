@@ -1,149 +1,79 @@
-import { fetchPage, HtmlDoc } from "../../../lib/scraper";
-import { formatDuration, cleanText, resolveUrl } from "../../../lib/format";
+import { fetchJSON } from "../../../lib/scraper";
 import { BASE_URLS } from "../../../config/index";
 import { maybeError } from "../../../utils/modifier";
 import { logger } from "../../../utils/logger";
 
-const PH = BASE_URLS.PORNHUB; // https://www.pornhub.org
+const API = BASE_URLS.PORNHUB_API;
+const PH  = BASE_URLS.PORNHUB;
 
 export async function getHandler(query: URLSearchParams): Promise<object> {
   const id = query.get("id");
   if (!id) return maybeError(false, "Query param `id` is required");
 
-  const url = `${PH}/view_video.php?viewkey=${id}`;
-  logger.info(`[pornhub/get] fetching: ${url}`);
+  // PH Webmasters API: video by ID
+  const url = `${API}/video_by_id?id=${encodeURIComponent(id)}`;
+  logger.info(`[pornhub/get] fetching API: ${url}`);
 
-  let html: string;
+  let data: any;
   try {
-    html = await fetchPage(url);
+    data = await fetchJSON(url);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error(`[pornhub/get] fetch failed: ${msg}`);
     return { success: false, message: msg };
   }
 
-  const doc = new HtmlDoc(html);
-  const $   = doc.raw;
+  // Response shape: { video: { id, title, thumb, thumbs, duration, views, ... } }
+  const v = data?.video ?? data;
 
-  // Strategy 1: flashvars JS object (most reliable)
-  const flashvars = doc.extractJsVar("flashvars_");
-  logger.info(`[pornhub/get] flashvars found: ${!!flashvars}`);
-
-  let title       = "";
-  let image       = "";
-  let videoUrl    = "";
-  let duration    = "";
-  let description = "";
-
-  if (flashvars) {
-    title    = flashvars.video_title    ?? flashvars.title    ?? "";
-    image    = flashvars.image_url      ?? flashvars.image    ?? "";
-    videoUrl =
-      flashvars.mediaDefinitions?.[0]?.videoUrl ??
-      flashvars.link_url  ??
-      flashvars.video_url ??
-      "";
-    duration = flashvars.video_duration
-      ? formatDuration(parseInt(String(flashvars.video_duration), 10))
-      : "";
-    description = flashvars.video_description ?? "";
+  if (!v || (!v.title && !v.id)) {
+    return {
+      success: false,
+      message: "Video not found or API returned empty data",
+      _raw:    data,
+    };
   }
 
-  // Strategy 2: meta tags fallback
-  if (!title)    title    = doc.meta("og:title");
-  if (!image)    image    = doc.meta("og:image");
-  if (!videoUrl) videoUrl = doc.meta("og:video:url") || doc.meta("og:video");
+  const viewkey = v.id ?? id;
 
-  if (!duration) {
-    const raw = doc.meta("video:duration");
-    duration = raw
-      ? formatDuration(parseInt(raw, 10))
-      : cleanText($(".durationBadge").first().text()) ||
-        cleanText($("span.duration").first().text())  ||
-        cleanText($("var.duration").first().text())   ||
-        "";
-  }
-
-  // Strategy 3: DOM fallbacks
-  if (!title) {
-    title =
-      cleanText($("h1.title").first().text()) ||
-      cleanText($(".title-container h1").first().text()) ||
-      "";
-  }
-
-  // Views
-  const views =
-    cleanText($(".videoInfoBlock .views span.count").text()) ||
-    cleanText($("div.views span.count").text())               ||
-    cleanText($(".views .count").text())                      ||
-    "";
-
-  // Rating
-  const rating =
-    cleanText($(".ratingPercent span.percent").text()) ||
-    cleanText($(".ratingPercent").text())               ||
-    "";
-
-  // Votes
-  const upvote   = $("span.votesUp").attr("data-rating")   ?? "";
-  const downvote = $("span.votesDown").attr("data-rating") ?? "";
-
-  // Upload date
-  const uploadDate =
-    cleanText($(".uploadDate").text())              ||
-    cleanText($("div.videoInfoBlock .date").text()) ||
-    doc.meta("uploadDate")                          ||
-    "";
-
-  // Tags
+  // mediaDefinitions: array of { quality, videoUrl } — get highest quality
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tags: string[] = $(
-    ".tagsWrapper a, .categoriesWrapper a, .categoriesWrap a"
-  )
-    .map((_i: any, el: any) => cleanText($(el).text()))
-    .get()
-    .filter((t: string) => t && t !== "Suggest" && t.length > 0);
+  const mediaDefs: any[] = v.mediaDefinitions ?? [];
+  const videoUrl =
+    mediaDefs.find((m: any) => m.quality === "1080")?.videoUrl ??
+    mediaDefs.find((m: any) => m.quality === "720")?.videoUrl  ??
+    mediaDefs.find((m: any) => m.quality === "480")?.videoUrl  ??
+    mediaDefs[mediaDefs.length - 1]?.videoUrl ?? "";
 
-  // Models
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const models: string[] = $(
-    ".pornstarsWrapper a, .modelWrapper a, .pornstarsWrap a, .modelsWrapper a"
-  )
-    .map((_i: any, el: any) => cleanText($(el).text()))
-    .get()
-    .filter(Boolean);
-
-  // Channel / uploader
-  const channelEl =
-    $(".userInfo .userNameWrap a, .channelInfo a, .usernameBadgesWrapper a").first();
-  const channel     = cleanText(channelEl.text());
-  const channelHref = channelEl.attr("href") ?? "";
-  const channelUrl  = channelHref ? resolveUrl(channelHref, PH) : "";
-
-  logger.info(`[pornhub/get] id=${id} title="${title}" views="${views}"`);
+  logger.info(`[pornhub/get] id=${id} title="${v.title}" views="${v.views}"`);
 
   return {
     success: true,
     data: {
-      id,
-      viewkey:    id,
-      title,
-      image,
+      id:          viewkey,
+      viewkey,
+      title:       v.title        ?? "",
+      thumb:       v.thumb        ?? v.defaultThumb?.src ?? "",
+      thumbs:      v.thumbs       ?? [],
+      preview:     v.preview      ?? "",
       videoUrl,
-      duration,
-      views,
-      rating,
-      upvote,
-      downvote,
-      uploadDate,
-      description,
-      channel,
-      channelUrl,
-      models: [...new Set(models)],
-      tags:   [...new Set(tags)],
+      mediaDefinitions: mediaDefs,
+      duration:    v.duration     ?? "",
+      views:       v.views        ?? "",
+      rating:      v.rating       ?? "",
+      upvote:      v.ratings      ?? "",
+      votesUp:     v.votes?.up    ?? "",
+      votesDown:   v.votes?.down  ?? "",
+      publishDate: v.publish_date ?? "",
+      description: v.description  ?? "",
+      channel:     v.author?.username ?? "",
+      channelUrl:  v.author?.url       ?? "",
+      models:      (v.pornstars ?? []).map((p: any) => p.pornstar?.name ?? p.name ?? p),
+      tags:        (v.tags ?? []).map((t: any) => t.tag_name ?? t.name ?? t),
+      categories:  (v.categories ?? []).map((c: any) => c.category ?? c.name ?? c),
+      url:         v.url ?? `${PH}/view_video.php?viewkey=${viewkey}`,
+      segment:     v.segment ?? "",
     },
     source: url,
-    ...((!title && !image) ? { _debug: doc.debugInfo() } : {}),
   };
 }
