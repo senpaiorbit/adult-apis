@@ -6,80 +6,44 @@ import { maybeError } from "../../../utils/modifier";
 import { logger } from "../../../utils/logger";
 
 interface VideoCard {
-  id:       string;
-  title:    string;
-  thumb:    string;
-  duration: string;
-  views:    string;
-  rating:   string;
-  url:      string;
+  id: string; title: string; thumb: string;
+  duration: string; views: string; rating: string; url: string;
 }
 
-/**
- * GET /pornhub/search?q=<query>&page=<page>
- *
- * Returns a paginated list of video cards matching the search query.
- */
 export async function searchHandler(c: Context) {
   const q    = c.req.query("q");
   const page = c.req.query("page") || "1";
-
-  if (!q) {
-    return c.json(maybeError(false, "Query param `q` is required"), 400);
-  }
+  if (!q) return c.json(maybeError(false, "Query param `q` is required"), 400);
 
   try {
     const url  = `${BASE_URLS.PORNHUB}/video/search?search=${encodeQuery(q)}&p=${page}`;
     const html = await fetchPage(url);
     const $    = new HtmlDoc(html).raw;
-
     const results: VideoCard[] = [];
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    $("li.pcVideoListItem").each((_i: number, el: any) => {
-      const $el = $(el);
-
+    $("li.pcVideoListItem").each((_i: any, el: any) => {
+      const $el  = $(el);
       const href = $el.find("a.linkVideoThumb").attr("href") ?? "";
       if (!href) return;
-
-      const title = cleanText($el.find(".title a").text());
-
-      const thumb = normalizeThumbnail(
-        $el.find("img").attr("data-thumb_url") ||
-        $el.find("img").attr("data-mediumthumb") ||
-        $el.find("img").attr("src") ||
-        ""
-      );
-
-      const duration = cleanText($el.find("var.duration").text());
-      const views    = cleanText($el.find("span.count").text());
-      const rating   = cleanText($el.find("div.value").first().text());
-
-      // viewkey sits after "?viewkey=" in the href
-      const id = href.includes("viewkey=")
-        ? href.split("viewkey=")[1]
-        : href.split("=").pop() ?? "";
-
+      const id = href.includes("viewkey=") ? href.split("viewkey=")[1] : href.split("=").pop() ?? "";
       results.push({
         id,
-        title,
-        thumb,
-        duration,
-        views,
-        rating,
-        url: `${BASE_URLS.PORNHUB}${href}`,
+        title:    cleanText($el.find(".title a").text()),
+        thumb:    normalizeThumbnail(
+          $el.find("img").attr("data-thumb_url") ||
+          $el.find("img").attr("data-mediumthumb") ||
+          $el.find("img").attr("src") || ""
+        ),
+        duration: cleanText($el.find("var.duration").text()),
+        views:    cleanText($el.find("span.count").text()),
+        rating:   cleanText($el.find("div.value").first().text()),
+        url:      `${BASE_URLS.PORNHUB}${href}`,
       });
     });
 
     logger.info(`[pornhub/search] q="${q}" page=${page} results=${results.length}`);
-
-    return c.json({
-      success: true,
-      query:   q,
-      page:    Number(page),
-      total:   results.length,
-      data:    results,
-    });
+    return c.json({ success: true, query: q, page: Number(page), total: results.length, data: results });
   } catch (err) {
     const e = err as Error;
     logger.error(`[pornhub/search] ${e.message}`);

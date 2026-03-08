@@ -5,17 +5,9 @@ import { BASE_URLS } from "../../../config";
 import { maybeError } from "../../../utils/modifier";
 import { logger } from "../../../utils/logger";
 
-/**
- * GET /pornhub/get?id=<viewkey>
- *
- * Returns full metadata for a single PornHub video.
- */
 export async function getHandler(c: Context) {
   const id = c.req.query("id");
-
-  if (!id) {
-    return c.json(maybeError(false, "Query param `id` is required"), 400);
-  }
+  if (!id) return c.json(maybeError(false, "Query param `id` is required"), 400);
 
   try {
     const url  = `${BASE_URLS.PORNHUB}/view_video.php?viewkey=${id}`;
@@ -23,30 +15,26 @@ export async function getHandler(c: Context) {
     const doc  = new HtmlDoc(html);
     const $    = doc.raw;
 
-    // ── Meta tags ──────────────────────────────────────────────
-    const canonicalLink = doc.meta("og:url")       || url;
+    const canonicalLink = doc.meta("og:url") || url;
     const title         = doc.meta("og:title");
     const image         = normalizeThumbnail(doc.meta("og:image"));
     const videoUrl      = doc.meta("og:video:url");
-    const durationSecs  = parseInt(doc.meta("video:duration") || "0", 10);
-    const duration      = formatDuration(durationSecs);
+    const duration      = formatDuration(parseInt(doc.meta("video:duration") || "0", 10));
+    const views         = cleanText($("div.views span.count").text());
+    const rating        = cleanText($("div.ratingPercent span.percent").text());
+    const upvote        = $("span.votesUp").attr("data-rating")   ?? "";
+    const downvote      = $("span.votesDown").attr("data-rating") ?? "";
+    const uploaded      = cleanText($("div.videoInfo").text());
 
-    // ── DOM selectors ──────────────────────────────────────────
-    const views    = cleanText($("div.views span.count").text());
-    const rating   = cleanText($("div.ratingPercent span.percent").text());
-    const upvote   = $("span.votesUp").attr("data-rating")   ?? "";
-    const downvote = $("span.votesDown").attr("data-rating") ?? "";
-    const uploaded = cleanText($("div.videoInfo").text());
-
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tags: string[] = $("div.video-info-row a")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((_i: number, el: any) => cleanText($(el).text()))
+      .map((_i: any, el: any) => cleanText($(el).text()))
       .get()
-      .filter((t: string) => t && t !== "Suggest" && t !== " Suggest");
+      .filter((t: string) => t && t !== "Suggest");
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const models: string[] = $("div.pornstarsWrapper.js-pornstarsWrapper a")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((_i: number, el: any) => $(el).attr("data-mxptext") ?? "")
+      .map((_i: any, el: any) => $(el).attr("data-mxptext") ?? "")
       .get()
       .filter(Boolean);
 
@@ -54,19 +42,7 @@ export async function getHandler(c: Context) {
 
     return c.json({
       success: true,
-      data: {
-        id,
-        title,
-        image,
-        duration,
-        views,
-        rating,
-        uploaded,
-        upvote,
-        downvote,
-        models,
-        tags,
-      },
+      data: { id, title, image, duration, views, rating, uploaded, upvote, downvote, models, tags },
       source: canonicalLink,
       assets: [videoUrl, image].filter(Boolean),
     });
