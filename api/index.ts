@@ -1,51 +1,70 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
+import type { IncomingMessage, ServerResponse } from "http";
 import app from "../src/index";
 
 export const config = {
   runtime: "nodejs",
 };
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+// Convert Node IncomingMessage to a Web Request
+async function toWebRequest(req: IncomingMessage): Promise<Request> {
+  const host = req.headers.host ?? "localhost";
+  const proto = "https";
+  const url = `${proto}://${host}${req.url ?? "/"}`;
 
-  const bodyBuffer =
-    req.method !== "GET" && req.method !== "HEAD"
-      ? await streamToBuffer(req)
-      : null;
+  const headers = new Headers();
+  for (const [key, val] of Object.entries(req.headers)) {
+    if (!val) continue;
+    if (Array.isArray(val)) {
+      for (const v of val) headers.append(key, v);
+    } else {
+      headers.set(key, val);
+    }
+  }
 
-  // Build a fetch-compatible Request from the Vercel IncomingMessage
-  const fetchReq = new Request(url.toString(), {
-    method: req.method ?? "GET",
-    headers: req.headers as Record<string, string>,
-    body: bodyBuffer ? (bodyBuffer as unknown as BodyInit) : undefined,
-  });
+  const method = (req.method ?? "GET").toUpperCase();
+  const hasBody = method !== "GET" && method !== "HEAD";
 
-  const fetchRes = await app.fetch(fetchReq);
+  let body: BodyInit | undefined;
+  if (hasBody) {
+    body = await new Promise<Uint8Array>((resolve, reject) => {
+      const chunks: Uint8Array[] = [];
+      req.on("data", (c: Uint8Array) => chunks.push(c));
+      req.on("end", () => {
+        const total = chunks.reduce((n, c) => n + c.length, 0);
+        const out = new Uint8Array(total);
+        let i = 0;
+        for (const c of chunks) { out.set(c, i); i += c.length; }
+        resolve(out);
+      });
+      req.on("error", reject);
+    });
+  }
 
-  res.status(fetchRes.status);
-
-  fetchRes.headers.forEach((value, key) => {
-    res.setHeader(key, value);
-  });
-
-  const body = await fetchRes.text();
-  res.end(body);
+  return new Request(url, { method, headers, body });
 }
 
-function streamToBuffer(req: VercelRequest): Promise<Uint8Array> {
-  return new Promise((resolve, reject) => {
-    const chunks: Uint8Array[] = [];
-    req.on("data", (chunk: Uint8Array) => chunks.push(chunk));
-    req.on("end", () => {
-      const total = chunks.reduce((acc, c) => acc + c.length, 0);
-      const merged = new Uint8Array(total);
-      let offset = 0;
-      for (const chunk of chunks) {
-        merged.set(chunk, offset);
-        offset += chunk.length;
-      }
-      resolve(merged);
+export default async function handler(
+  req: IncomingMessage,
+  res: ServerResponse
+) {
+  try {
+    const webReq = await toWebRequest(req);
+    const webRes = await app.fetch(webReq);
+
+    res.statusCode = webRes.status;
+
+    webRes.headers.forEach((val, key) => {
+      // skip headers Node sets itself
+      if (key.toLowerCase() === "transfer-encoding") return;
+      res.setHeader(key, val);
     });
-    req.on("error", reject);
-  });
+
+    const buf = await webRes.arrayBuffer();
+    res.end(Buffer.from(buf));
+  } catch (err) {
+    console.error("[handler crash]", err);
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ success: false, message: "Internal Server Error" }));
+  }
 }
