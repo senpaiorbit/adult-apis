@@ -1,8 +1,9 @@
+import * as https from "https";
+import * as http from "http";
 import { load, type CheerioAPI } from "cheerio";
-import { DEFAULT_HEADERS, FETCH_TIMEOUT, MAX_RETRIES } from "../config";
+import { DEFAULT_HEADERS, FETCH_TIMEOUT, MAX_RETRIES } from "../config/index";
 import { cleanText } from "./format";
 
-// ── In-memory cache & deduplication ─────────────────────────────────────────
 const fetchCache = new Map<string, string>();
 const inFlight   = new Map<string, Promise<string>>();
 
@@ -10,12 +11,36 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/**
- * Fetch raw HTML with caching, deduplication and retry back-off.
- * Uses native fetch (Node 18+ built-in — Vercel Node 20.x supports it).
- */
+function fetchRaw(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith("https") ? https : http;
+    const req = lib.get(url, { headers: DEFAULT_HEADERS, timeout: FETCH_TIMEOUT }, (res) => {
+      // Follow redirects (up to 5)
+      if (
+        res.statusCode &&
+        res.statusCode >= 300 &&
+        res.statusCode < 400 &&
+        res.headers.location
+      ) {
+        return fetchRaw(res.headers.location).then(resolve).catch(reject);
+      }
+      if (res.statusCode && res.statusCode >= 400) {
+        return reject(new Error(`HTTP ${res.statusCode}`));
+      }
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+      res.on("error", reject);
+    });
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error(`Request timed out: ${url}`));
+    });
+  });
+}
+
 export async function fetchPage(rawUrl: string): Promise<string> {
-  // collapse duplicate slashes while preserving "://"
   const url = rawUrl.replace(/([^:])\/\/+/g, "$1/");
 
   if (fetchCache.has(url)) return fetchCache.get(url)!;
@@ -23,25 +48,9 @@ export async function fetchPage(rawUrl: string): Promise<string> {
 
   const promise = (async (): Promise<string> => {
     let lastErr: Error | null = null;
-
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
-
-        const res = await fetch(url, {
-          headers: DEFAULT_HEADERS,
-          signal:  controller.signal,
-          redirect: "follow",
-        });
-
-        clearTimeout(timer);
-
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status} ${res.statusText} — ${url}`);
-        }
-
-        const html = await res.text();
+        const html = await fetchRaw(url);
         fetchCache.set(url, html);
         return html;
       } catch (err) {
@@ -50,10 +59,7 @@ export async function fetchPage(rawUrl: string): Promise<string> {
         if (attempt < MAX_RETRIES) await sleep(350 * attempt);
       }
     }
-
-    throw new Error(
-      `fetchPage gave up after ${MAX_RETRIES} attempts: ${lastErr?.message}`
-    );
+    throw new Error(`fetchPage failed after ${MAX_RETRIES} attempts: ${lastErr?.message}`);
   })();
 
   inFlight.set(url, promise);
@@ -64,8 +70,6 @@ export async function fetchPage(rawUrl: string): Promise<string> {
   }
 }
 
-// ── HtmlDoc ──────────────────────────────────────────────────────────────────
-
 export class HtmlDoc {
   private $: CheerioAPI;
 
@@ -73,9 +77,7 @@ export class HtmlDoc {
     this.$ = load(html);
   }
 
-  get raw(): CheerioAPI {
-    return this.$;
-  }
+  get raw(): CheerioAPI { return this.$; }
 
   text(selector: string): string {
     return cleanText(this.$(selector).first().text());
@@ -93,16 +95,16 @@ export class HtmlDoc {
     );
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   texts(selector: string): string[] {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return this.$(selector)
       .map((_i: any, el: any) => cleanText(this.$(el).text()))
       .get()
       .filter(Boolean);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   attrs(selector: string, attribute: string): string[] {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return this.$(selector)
       .map((_i: any, el: any) => this.$(el).attr(attribute) ?? "")
       .get()
