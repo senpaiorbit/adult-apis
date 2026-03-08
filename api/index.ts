@@ -5,7 +5,6 @@ export const config = {
   runtime: "nodejs",
 };
 
-// Convert Node IncomingMessage to a Web Request
 async function toWebRequest(req: IncomingMessage): Promise<Request> {
   const host = req.headers.host ?? "localhost";
   const url = `https://${host}${req.url ?? "/"}`;
@@ -23,15 +22,13 @@ async function toWebRequest(req: IncomingMessage): Promise<Request> {
   const method = (req.method ?? "GET").toUpperCase();
   const hasBody = method !== "GET" && method !== "HEAD";
 
-  let body: ArrayBuffer | undefined;
+  let body: string | undefined;
   if (hasBody) {
-    body = await new Promise<ArrayBuffer>((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      req.on("data", (c: Buffer) => chunks.push(c));
-      req.on("end", () => {
-        const merged = Buffer.concat(chunks);
-        resolve(merged.buffer.slice(merged.byteOffset, merged.byteOffset + merged.byteLength) as ArrayBuffer);
-      });
+    body = await new Promise<string>((resolve, reject) => {
+      let data = "";
+      req.setEncoding("utf8");
+      req.on("data", (chunk: string) => { data += chunk; });
+      req.on("end", () => resolve(data));
       req.on("error", reject);
     });
   }
