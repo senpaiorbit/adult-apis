@@ -8,8 +8,7 @@ export const config = {
 // Convert Node IncomingMessage to a Web Request
 async function toWebRequest(req: IncomingMessage): Promise<Request> {
   const host = req.headers.host ?? "localhost";
-  const proto = "https";
-  const url = `${proto}://${host}${req.url ?? "/"}`;
+  const url = `https://${host}${req.url ?? "/"}`;
 
   const headers = new Headers();
   for (const [key, val] of Object.entries(req.headers)) {
@@ -24,17 +23,14 @@ async function toWebRequest(req: IncomingMessage): Promise<Request> {
   const method = (req.method ?? "GET").toUpperCase();
   const hasBody = method !== "GET" && method !== "HEAD";
 
-  let body: BodyInit | undefined;
+  let body: ArrayBuffer | undefined;
   if (hasBody) {
-    body = await new Promise<Uint8Array>((resolve, reject) => {
-      const chunks: Uint8Array[] = [];
-      req.on("data", (c: Uint8Array) => chunks.push(c));
+    body = await new Promise<ArrayBuffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
       req.on("end", () => {
-        const total = chunks.reduce((n, c) => n + c.length, 0);
-        const out = new Uint8Array(total);
-        let i = 0;
-        for (const c of chunks) { out.set(c, i); i += c.length; }
-        resolve(out);
+        const merged = Buffer.concat(chunks);
+        resolve(merged.buffer.slice(merged.byteOffset, merged.byteOffset + merged.byteLength) as ArrayBuffer);
       });
       req.on("error", reject);
     });
@@ -54,7 +50,6 @@ export default async function handler(
     res.statusCode = webRes.status;
 
     webRes.headers.forEach((val, key) => {
-      // skip headers Node sets itself
       if (key.toLowerCase() === "transfer-encoding") return;
       res.setHeader(key, val);
     });
