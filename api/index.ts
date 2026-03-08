@@ -2,48 +2,37 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { route, getCorsHeaders } from "../src/router";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const corsHeaders = getCorsHeaders();
+  const cors = getCorsHeaders();
 
   // Pre-flight
   if (req.method === "OPTIONS") {
-    return res
-      .status(204)
-      .setHeader("Access-Control-Allow-Origin",  corsHeaders["Access-Control-Allow-Origin"])
-      .setHeader("Access-Control-Allow-Methods", corsHeaders["Access-Control-Allow-Methods"])
-      .setHeader("Access-Control-Allow-Headers", corsHeaders["Access-Control-Allow-Headers"])
-      .end();
+    res.setHeader("Access-Control-Allow-Origin",  cors["Access-Control-Allow-Origin"]);
+    res.setHeader("Access-Control-Allow-Methods", cors["Access-Control-Allow-Methods"]);
+    res.setHeader("Access-Control-Allow-Headers", cors["Access-Control-Allow-Headers"]);
+    return res.status(204).end();
   }
 
-  // Only allow GET
   if (req.method !== "GET") {
-    return res
-      .status(405)
-      .json({ success: false, message: "Method not allowed" });
+    return res.status(405).json({ success: false, message: "Method not allowed" });
   }
 
   try {
-    // Parse pathname + query from the request URL
     const rawUrl   = req.url ?? "/";
-    const base     = "http://localhost";
-    const parsed   = new URL(rawUrl, base);
+    const parsed   = new URL(rawUrl, "http://localhost");
     const pathname = parsed.pathname;
     const query    = parsed.searchParams;
 
     const { body, status } = await route(pathname, query);
 
-    return res
-      .status(status)
-      .setHeader("Content-Type",                 "application/json")
-      .setHeader("Access-Control-Allow-Origin",  corsHeaders["Access-Control-Allow-Origin"])
-      .setHeader("Access-Control-Allow-Methods", corsHeaders["Access-Control-Allow-Methods"])
-      .setHeader("Access-Control-Allow-Headers", corsHeaders["Access-Control-Allow-Headers"])
-      .json(body);
+    res.setHeader("Content-Type",                 "application/json");
+    res.setHeader("Access-Control-Allow-Origin",  cors["Access-Control-Allow-Origin"]);
+    res.setHeader("Access-Control-Allow-Methods", cors["Access-Control-Allow-Methods"]);
+    res.setHeader("Access-Control-Allow-Headers", cors["Access-Control-Allow-Headers"]);
+    return res.status(status).json(body);
 
   } catch (err) {
     const e = err as Error;
-    console.error("[handler crash]", e);
-    return res
-      .status(500)
-      .json({ success: false, message: e.message ?? "Internal server error" });
+    console.error("[handler crash]", e.message, e.stack);
+    return res.status(500).json({ success: false, message: e.message ?? "Internal server error" });
   }
 }
