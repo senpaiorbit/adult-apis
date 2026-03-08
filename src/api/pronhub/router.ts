@@ -3,7 +3,6 @@ import { searchHandler }   from "./pages/search";
 import { trendingHandler } from "./pages/trending";
 import { maybeError }      from "../../utils/modifier";
 
-// Map sub-path → handler
 const routes: Record<string, (q: URLSearchParams) => Promise<object>> = {
   "/pornhub/get":      getHandler,
   "/pornhub/search":   searchHandler,
