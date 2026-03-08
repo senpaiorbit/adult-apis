@@ -5,7 +5,7 @@ import { categoriesHandler } from "./api/pronhub/pages/categories";
 import { trendingHandler } from "./api/pronhub/pages/trending";
 import { modelHandler } from "./api/pronhub/pages/model";
 
-const app = new Hono().basePath("/");
+const app = new Hono();
 
 // ─── Health / root ────────────────────────────────────────────────────────────
 
