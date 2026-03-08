@@ -24,12 +24,12 @@ export async function route(pathname: string, query: URLSearchParams): Promise<R
         name:    "CornHub API",
         version: "2.0.0",
         status:  "ok",
-        source:  "pornhub.org",
+        backend: "PornHub Webmasters JSON API (pornhub.com/webmasters)",
         routes: {
-          "GET /pornhub/get?id=<viewkey>":          "Fetch a single video by viewkey",
-          "GET /pornhub/search?q=<query>&page=<n>": "Search videos",
-          "GET /pornhub/trending?page=<n>":         "Trending videos",
-          "GET /pornhub/debug?url=<url>":           "Debug scraper for any URL",
+          "GET /pornhub/get?id=<viewkey>":                         "Fetch a single video by viewkey",
+          "GET /pornhub/search?q=<query>&page=<n>&ordering=<o>":  "Search videos (ordering: mostviewed|newest|rating)",
+          "GET /pornhub/trending?page=<n>&period=<p>":            "Trending videos (period: weekly|monthly|alltime)",
+          "GET /pornhub/debug":                                    "Test all API endpoints",
         },
       },
     };
