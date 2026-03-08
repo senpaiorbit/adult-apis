@@ -6,12 +6,14 @@ export const config = {
 };
 
 async function toWebRequest(req: IncomingMessage): Promise<Request> {
+  // Use http:// — Vercel handles TLS termination externally
+  const proto = (req.headers["x-forwarded-proto"] as string) ?? "http";
   const host = req.headers.host ?? "localhost";
-  const url = `https://${host}${req.url ?? "/"}`;
+  const url = `${proto}://${host}${req.url ?? "/"}`;
 
   const headers = new Headers();
   for (const [key, val] of Object.entries(req.headers)) {
-    if (!val) continue;
+    if (val === undefined) continue;
     if (Array.isArray(val)) {
       for (const v of val) headers.append(key, v);
     } else {
@@ -42,7 +44,8 @@ export default async function handler(
 ) {
   try {
     const webReq = await toWebRequest(req);
-    const webRes = await app.fetch(webReq);
+    // Pass an empty env object as second arg — required by some Hono internals
+    const webRes = await app.fetch(webReq, {});
 
     res.statusCode = webRes.status;
 
@@ -57,6 +60,8 @@ export default async function handler(
     console.error("[handler crash]", err);
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ success: false, message: "Internal Server Error" }));
+    res.end(
+      JSON.stringify({ success: false, message: "Internal Server Error" })
+    );
   }
 }
