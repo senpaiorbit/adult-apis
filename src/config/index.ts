@@ -1,5 +1,5 @@
 export const BASE_URLS = {
-  PORNHUB:   "https://www.pornhub.com",
+  PORNHUB:   "https://www.pornhub.org",
   XNXX:      "https://www.xnxx.com",
   XVIDEOS:   "https://www.xvideos.com",
   XHAMSTER:  "https://xhamster.com",
