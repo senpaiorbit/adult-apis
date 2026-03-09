@@ -1,12 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-// ── Node.js runtime – lightweight, no scraping needed ────────────────────────
-// Switch to Edge by exporting:  export const config = { runtime: "edge" }
-// and returning a Response object instead of using VercelResponse.
-export const config = {
-  runtime: "nodejs",
-};
-
 /**
  * GET /api/stats
  *
