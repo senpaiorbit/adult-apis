@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { scrapePornhubSearch } from "../../lib/scrapers/pornhub/searchController";
+import { scrapePornhubSearch } from "../../lib/scrapes/pornhub/searchController";
 import options from "../../lib/options";
 import { maybeError, spacer } from "../../lib/modifier";
 
