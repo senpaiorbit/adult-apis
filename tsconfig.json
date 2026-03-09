@@ -7,11 +7,7 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "outDir": ".vercel/output",
-    "baseUrl": ".",
-    "paths": {
-      "@lib/*": ["lib/*"]
-    }
+    "baseUrl": "."
   },
   "include": ["api/**/*", "lib/**/*"],
   "exclude": ["node_modules", ".vercel"]
