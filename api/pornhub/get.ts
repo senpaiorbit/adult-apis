@@ -3,11 +3,6 @@ import { scrapePornhubGet } from "../../lib/scrapers/pornhub/getController";
 import options from "../../lib/options";
 import { maybeError } from "../../lib/modifier";
 
-// ── Node.js runtime (required for cheerio / http modules) ────────────────────
-export const config = {
-  runtime: "nodejs",
-};
-
 /**
  * GET /api/pornhub/get?id=<viewkey>
  *
