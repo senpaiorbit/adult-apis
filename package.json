@@ -1,16 +1,20 @@
 {
-  "name": "cornhub-api",
+  "name": "adultcolony-vercel",
   "version": "1.0.0",
+  "description": "AdultColony API – Vercel Serverless Edition",
   "private": true,
   "scripts": {
     "dev": "vercel dev",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "cheerio": "^1.0.0"
+    "cheerio": "^1.0.0",
+    "phin": "^3.7.1"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "@vercel/node": "^3.0.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.8.3"
   }
 }

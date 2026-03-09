@@ -1,6 +1,6 @@
 node_modules/
-dist/
 .vercel/
+dist/
+*.js.map
 .env
 .env.local
-*.log

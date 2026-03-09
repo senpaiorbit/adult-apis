@@ -2,17 +2,17 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "CommonJS",
-    "moduleResolution": "node10",
+    "moduleResolution": "node",
+    "lib": ["ES2020", "DOM"],
     "strict": true,
     "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
-    "lib": ["ES2020", "DOM"],
-    "resolveJsonModule": true,
-    "forceConsistentCasingInFileNames": true,
+    "outDir": ".vercel/output",
     "baseUrl": ".",
-    "typeRoots": ["./node_modules/@types"]
+    "paths": {
+      "@lib/*": ["lib/*"]
+    }
   },
-  "include": ["src/**/*", "api/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["api/**/*", "lib/**/*"],
+  "exclude": ["node_modules", ".vercel"]
 }

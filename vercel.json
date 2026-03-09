@@ -1,15 +1,27 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "api/index.ts",
-      "use": "@vercel/node"
-    }
+  "framework": null,
+  "functions": {
+    "api/pornhub/get.ts":    { "runtime": "nodejs20.x", "maxDuration": 30 },
+    "api/pornhub/search.ts": { "runtime": "nodejs20.x", "maxDuration": 30 },
+    "api/pornhub/random.ts": { "runtime": "nodejs20.x", "maxDuration": 30 },
+    "api/stats.ts":          { "runtime": "nodejs20.x", "maxDuration": 10 },
+    "api/index.ts":          { "runtime": "nodejs20.x", "maxDuration": 10 }
+  },
+  "rewrites": [
+    { "source": "/pornhub/get",    "destination": "/api/pornhub/get" },
+    { "source": "/pornhub/search", "destination": "/api/pornhub/search" },
+    { "source": "/pornhub/random", "destination": "/api/pornhub/random" },
+    { "source": "/stats",          "destination": "/api/stats" }
   ],
-  "routes": [
+  "headers": [
     {
-      "src": "/(.*)",
-      "dest": "/api/index.ts"
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin",  "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
+      ]
     }
   ]
 }
